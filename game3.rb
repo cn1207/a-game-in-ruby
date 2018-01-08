@@ -8,37 +8,44 @@ class Game < Chingu::GameState
   ENEMY_NUM = 8
   DEBUG = true
 
-  def initialize
-    super
+ 	def setup
     @background_image = Image["space.png"]
     @sound_beep = Sound["beep.wav"]    
     @sound_explosion = Sound["explosion.ogg"]
     @sound_laser = Sound["laser.wav"]
 
-    @player = Player.create(:image => Image["starfighter.bmp"])
+	  @player = Player.create(:image => Image["starfighter.bmp"])
     @player.input = { [:mouse_left, :space] => :fire }
 
     @score = 0
     @score_text = Text.create("Score: #{@score}", :x => 10, :y => 10, :size=>20)
     
-    self.input = { :esc => :exit_confirm } 
- end
+    self.input = { :esc => :exit_confirm, :enter => :pause } 
+ 	end
 
-  def exit_confirm
+ 	def pause
+ 		push_game_state(Chingu::GameStates::Pause)
+ 	end
+
+  def exit_confirm		    
   	push_game_state(ExitWindow)
   end
-  
+
   def update
     super
-    if rand(100) < 4 && Star.all.size < STAR_NUM;   	Star.create(:x =>rand*$window.width, :y =>rand*$window.height); end
-    if rand(100) < 2 && Enemy.all.size < ENEMY_NUM;   Enemy.create(:player => @player); end
-    
+    if rand(60) < 2 && Star.all.size < STAR_NUM;   		Star.create(:x =>rand*$window.width, :y =>rand*$window.height); end
+    if rand(60) < 1 && Enemy.all.size < ENEMY_NUM-1;   	Enemy.create(:player => @player); end
+    if rand(60*5) < 1 && Enemy.all.size < ENEMY_NUM
+      Enemy.create(:player => @player, :color => Gosu::Color::RED, :scale => 1.2, :move => :trace)
+    end
+
+
     Star.each_collision(@player, PlayerBullet, Enemy, EnemyBullet) { |o1, o2|
     													@score += 50 if o2.is_a?(Player); o1.destroy; @sound_beep.play }
-    @player.each_collision(Enemy) 			{ |p, e| @score -= 100; e.destroy; @sound_explosion.play }   
+    @player.each_collision(Enemy) 			{ |p, e| @score -= 100; e.valish; @sound_explosion.play }   
     @player.each_collision(EnemyBullet) { |p, b| @score -= 10;  b.destroy; p.flash; @sound_laser.play }
-    PlayerBullet.each_collision(Enemy) 	{ |p, e| @score += 100; p.destroy; e.destroy; @sound_explosion.play }
-    EnemyBullet.each_collision(Enemy) 	{ |p, e| p.destroy }
+    PlayerBullet.each_collision(Enemy) 	{ |b, e| @score += 100; b.destroy; e.valish; @sound_explosion.play }
+    EnemyBullet.each_collision(Enemy) 	{ |b, e| b.destroy }
     
     Enemy.all.each {|e| e.collision_flag = false }
     Enemy.each_collision(Enemy) do |e1, e2|
@@ -51,6 +58,9 @@ class Game < Chingu::GameState
    
     debug_info = DEBUG ? "/FPS: #{$window.fps}/objs:" + @game_objects.size.to_s  : ""
     @score_text.text = "Score: #{@score}#{debug_info}"
+    if @score < 0 
+      push_game_state(GameOver)
+    end
   end
 
   def draw
@@ -70,11 +80,12 @@ class Player < Chingu::GameObject
   traits :bounding_circle, :collision_detection, :timer
 
   def fire
-  	PlayerBullet.create(:x => @x, :y => @y-@image.height/2, :velocity_y => -10, :scale =>1.5)
+  	PlayerBullet.create(:x => @x, :y => @y, :velocity_y => -12, :scale =>1.5, :color => Gosu::Color::RED)
   end 
 
   def setup
   	@c_ori = @color
+    #@y = $window.height - @image.height
   end
 
   def update
@@ -93,40 +104,19 @@ class Bullet < Chingu::GameObject
   trait :velocity
   def setup
     @image = Image["bullet.png"]
-    @velocity_y = options[:velocity_y] || -10
-    @color = options[:color] ? options[:color] : Gosu::Color.argb(0xff_ffffff)
   end
 
+  def update
+    super
+    self.destroy if outside_window?    
+  end
 end
 
 class PlayerBullet < Bullet
-  def update
-    self.destroy if outside_window?
-    super
-  end
 end
 
 
 class EnemyBullet < Bullet
-	def setup
-    @player = options[:player] ? options[:player] : nil
-    @auto =  options[:auto] || false
-    super
-  end
-
-  def update
-  	if (@auto) 
-	    dx = @player.x - @x
-	    dy = @player.y - @y
-	    xy = Math::sqrt(dx**2 + dy**2)
-	    speed  = 4
-	    @velocity_x = speed * dx / xy
-	    @velocity_y = speed * dy / xy
-	  end
-	    @scale = 40
-    self.destroy if outside_window?
-    super
-  end
 end
 
 
@@ -139,9 +129,13 @@ class Enemy < Chingu::GameObject
   
   def setup
     @image = @animations[:default].first
-    @color.red 		= rand(256 - 40) + 40
-    @color.green 	= rand(256 - 40) + 40
-    @color.blue 	= rand(256 - 40) + 40
+    if !options[:color]
+	    @color.red 		= rand(256 - 20) + 20
+	    @color.green 	= rand(256 - 20) + 20
+	    @color.blue 	= rand(256 - 20) + 20
+	  else @color = options[:color]
+	  end
+
     @mode = :additive
     @velocity_x = rand(-2..2)
     @velocity_y = rand(1..2)
@@ -149,32 +143,45 @@ class Enemy < Chingu::GameObject
     @collision_flag = false
     @x = rand(@image.width..($window.width-@image.width))
     @y = 0
+    @move = options[:move] || :default
   end
 
   def update
     super
-    @velocity_x *= -1 if @x < @image.width/2 or @x > $window.width - @image.width/2
-    fire     
+    if @move == :trace and @collidable
+      @velocity_x, @velocity_y = cal_vx_vy(5)
+    elsif  @x < @image.width/2 or @x > $window.width - @image.width/2      
+      @velocity_x *= -1 
+    end
+    if outside_window?
+      @y = 0; @x = rand*$window.width; 
+    end
+    fire if @collidable    
   end
 
+  def cal_vx_vy(speed)
+    dx = @player.x - @x
+    dy = @player.y - @y
+    xy = Math::sqrt(dx**2 + dy**2)
+    return speed*dx/xy, speed*dy/xy
+  end
+    
   def fire
     if rand(100)<1 and @player.y > @y 
-      dx = @player.x - @x
-      dy = @player.y - @y
-      xy = Math::sqrt(dx**2 + dy**2)
-      speed  = 4
-      velocity_x = speed * dx / xy
-      velocity_y = speed * dy / xy
-      EnemyBullet.create(:x => @x, :y => @y + height/2, :velocity_x => velocity_x, :velocity_y => velocity_y, :color => @color, :player => @player) 
+      vx, vy = cal_vx_vy(10)
+      EnemyBullet.create(:x => @x, :y => @y + height/2, :velocity_x => vx, :velocity_y => vy, :color => @color) 
     end
-    if outside_window? then @y = 0; @x = rand*$window.width; end
   end
 
-  def destroy        
+  def valish
+    @collidable = false
   	@image = @animations[:explode].first
-    during(1000) { self.alpha -= 1; @collidable = false; @image = @animations[:explode].next }.then { super }
+  	@velocity_x /= 2
+  	@velocity_y /= 2
+    during(1000) { @image = @animations[:explode].next }.then { destroy }
   end
 end
+
 
 
 class Star < Chingu::GameObject
@@ -189,12 +196,13 @@ class Star < Chingu::GameObject
     @color.red 		= rand(256 - 40) + 40
     @color.green 	= rand(256 - 40) + 40
     @color.blue 	= rand(256 - 40) + 40
+    after(5000) { self.destroy }
+
   end
   
   def update
-      self.alpha -= @fade_rate  if defined?(@fade_rate)
+      @color.alpha -= @fade_rate
       @image = @animation.next
-      after(5000) { self.destroy }
   end
 end
 
@@ -203,19 +211,38 @@ class ExitWindow < Chingu::GameState
   def initialize
     super
     Chingu::GameObject.create(:image => "video_games.png", :x  => $window.width/2, :y => $window.height/2, :scale => 0.5)
-    Chingu::Text.create("Press 'ESC' to quit the game, 'Enter' to continue", :align => :left, :x  => $window.width/3, :y => $window.height - 100, :size => 20)
-    self.input = { :esc => :close_game, [:space, :return] => :un_pause }		
-	end
+    Chingu::Text.create("'ESC' to continue\n'q' to quit", :align => :left, :x  => $window.width/3, :y => $window.height - 100, :size => 20)
+    self.input = { :esc => :un_pause, :q => :exit}    
+  end
   
-  def un_pause
-    pop_game_state
+  def un_pause    
+    pop_game_state(:setup => false)
   end
 
   def draw
-		super
-		previous_game_state.draw
+    previous_game_state.draw
+    super
+  end
+end
+
+class GameOver < Chingu::GameState
+  def initialize
+    super
+    Chingu::GameObject.create(:image => "ruby.png", :x  => $window.width/2, :y => $window.height/2, :scale => 0.25)
+    Chingu::Text.create("'q' to quit\n'n' to star a new game", :align => :left, :x  => $window.width/3, :y => $window.height - 100, :size => 20)
+    self.input = { :q => :exit, :n => :new_game }    
+  end
+  
+  def draw
+    previous_game_state.draw
+    super
   end
 
+  def new_game
+    previous_game_state.input_clients.clear
+    previous_game_state.game_objects.each {|o| o.destroy}
+    pop_game_state(:setup => true)
+  end
 end
 
 
