@@ -4,7 +4,7 @@ require 'chingu'
  
 MOVE_SPEED = 5
 BULLET_SPEED = 15
-DEBUG = true
+DEBUG = false
 
 include Gosu
 include Chingu
@@ -46,7 +46,7 @@ class Game < Chingu::GameState
     PlayerBullet.each_collision(Enemy)  { |b, e| @score += 10; b.destroy; e.valish; @sound_explosion.play }
     EnemyBullet.each_collision(Enemy)   { |b, e| b.destroy }
     
-    debug_info = DEBUG && "/FPS: #{$window.fps}/objs: #{@game_objects.size.to_s}" 
+    debug_info = "/FPS: #{$window.fps}/objs: #{@game_objects.size.to_s}" if DEBUG
     @score_text.text = "Score: #{@score} #{debug_info}"
 	# exit_confirm if @score < 0 
  end
