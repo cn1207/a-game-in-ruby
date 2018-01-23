@@ -81,24 +81,6 @@ class Player < Chingu::GameObject
   def update
   	@x = $window.mouse_x
   	@y = $window.mouse_y
-    # @movement = 0 # movement, 0 => stay, -1=>left, 1=>right 
-    # nearest = $window.width
-
-    # distance = ->(x1, y1, x2, y2){ ((x1 - x2)**2 + (y1 - y2)**2)**0.5 }
-    # Enemy.all.each do |o|
-    #   next if !o.collidable
-    #   d = distance.call(o.x, o.y, @x, @y) 
-    #   if  d < nearest 
-    #     nearest = d
-    #     @movement = o.x <=> @x
-    #   end
-    # end
-    
-    # @x += MOVE_SPEED * @movement
-
-    # Enemy.all.each do |o|
-    #   fire if o.collidable && (o.x - @x).abs < (o.image.width + @image.width)/2 
-    # end
   end  
 
   def flash
